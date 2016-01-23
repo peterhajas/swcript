@@ -1,0 +1,171 @@
+#!/usr/bin/swift
+import Foundation
+
+func pathIsDirectory(path: String, fileManager: NSFileManager) -> Bool {
+    do {
+        let attributes = try fileManager.attributesOfItemAtPath(path)
+        let fileType = attributes[NSFileType] as! String
+        
+        return fileType == NSFileTypeDirectory
+    }
+    catch let error as NSError {
+        print("Encountered error when reading attributes of \(path) : \(error.description)")
+    }
+    return false
+}
+
+func pathIsSwiftFile(path: String, fileManager: NSFileManager) -> Bool {
+    if let url = NSURL(string: path) {
+        if let pathExtension = url.pathExtension {
+            if pathExtension == "swift" {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+func swiftFilesInDirectory(directory: String, fileManager: NSFileManager) -> [String] {
+    var files: [String] = [ ]
+    do {
+        let contents = try fileManager.contentsOfDirectoryAtPath(directory)
+        
+        for content in contents {
+            if let directoryURL: NSURL = NSURL(string: directory) {
+                let contentURL = directoryURL.URLByAppendingPathComponent(content)
+                if let contentPath = contentURL.relativePath {
+                    let isDirectory = pathIsDirectory(contentPath, fileManager: fileManager)
+                    
+                    if (isDirectory) {
+                        let childFiles = swiftFilesInDirectory(contentPath, fileManager: fileManager)
+                        files = files + childFiles
+                    }
+                    else if (pathIsSwiftFile(contentPath, fileManager: fileManager)) {
+                        files.append(contentPath)
+                    }
+                }
+            }
+        }
+    }
+    catch let error as NSError {
+        print("Encountered error when reading contents of \(directory) : \(error.description)")
+    }
+    
+    return files
+}
+
+func contentsOfFilePath(filePath: String) -> String {
+    var contents = ""
+    do {
+        contents = try NSString(contentsOfFile: filePath, encoding: NSUTF8StringEncoding) as String
+    }
+    catch let error as NSError {
+        print("Encountered error when reading contents of file \(filePath) : \(error.description)")
+    }
+    
+    return contents
+}
+
+func combinedFileContentsOfFilePaths(filePaths: [String]) -> String {
+    var contents: String = ""
+    for filePath in filePaths {
+        let fileContents = contentsOfFilePath(filePath)
+        contents += fileContents
+    }
+    
+    return contents
+}
+
+func logSwiftFilePathsBeingAssembled(filePaths: [String], inputDirectory: String) {
+    for filePath in filePaths {
+        let abbreviatedPath = filePath.stringByReplacingOccurrencesOfString("\(inputDirectory)", withString: "")
+        print("Adding .\(abbreviatedPath) to script...")
+    }
+}
+
+func saveScriptContentsToPath(contents: String, outPath: String) {
+    do {
+        let contentsNSString = contents as NSString
+        try contentsNSString.writeToFile(outPath, atomically: false, encoding: NSUTF8StringEncoding)
+    }
+    catch let error as NSError {
+        print("Encountered error when writing script file to \(outPath) : \(error.description)")
+    }
+}
+
+func massageScriptContents(contents: String, options: [SwcriptOptions]) -> String {
+    var massagedContents = contents
+    
+    let prologue = "#!/usr/bin/swift\n"
+    let epilogue = ";let swcriptapp = NSApplication.sharedApplication();if !swcriptapp.running { swcriptapp.run() }"
+    
+    massagedContents = prologue + massagedContents
+    
+    // Remove @NSApplicationMain instances
+    massagedContents = massagedContents.stringByReplacingOccurrencesOfString("@NSApplicationMain", withString: "")
+    
+    massagedContents = massagedContents + epilogue
+
+    // If we're supposed to minify, remove all newlines and replace them with
+    // semicolons
+
+    if (options.contains(.Minify)) {
+        massagedContents = massagedContents.stringByReplacingOccurrencesOfString("\n", withString: ";")
+    }
+    
+    return massagedContents as String
+}
+
+enum OptionInArgumentContainmentResult {
+    case NotFound
+    case Found
+}
+
+func argumentsContainOptions(arguments: [String], options: [String]) -> OptionInArgumentContainmentResult {
+    for option in options {
+        if let _ = arguments.indexOf(option) {
+            return .Found
+        }
+    }
+
+    return .NotFound
+}
+
+enum SwcriptOptions {
+    case NoOptions
+    case Minify
+}
+
+let args = Process.arguments
+let argCount = args.count
+
+if args.count >= 3 {
+    let minifyOptions = ["-m", "--minify"]
+    let minifyOptInArgResult: OptionInArgumentContainmentResult = argumentsContainOptions(args, options: minifyOptions)
+    var options: [SwcriptOptions] = [ ]
+
+    if (minifyOptInArgResult == .Found) {
+        options.append(.Minify)
+    }
+
+    let inputDirectory = args[argCount - 2]
+    let outputPath = args[argCount - 1]
+    
+    let fileManager = NSFileManager.defaultManager()
+    
+    let files = swiftFilesInDirectory(inputDirectory, fileManager: fileManager)
+    logSwiftFilePathsBeingAssembled(files, inputDirectory: inputDirectory)
+    
+    var scriptContents = combinedFileContentsOfFilePaths(files)
+    scriptContents = massageScriptContents(scriptContents, options: options)
+    
+    saveScriptContentsToPath(scriptContents, outPath: outputPath)
+}
+else {
+    let errorMessage = "Please pass a path to a directory containing swift files\n" +
+                       "that should be assembled into a script, and a path to a\n" +
+                       "file to use as an output script path\n" +
+                       "    For example:\n" +
+                       "    $ swcript ~/src/MyApp ~/Desktop/MyApp.swift\n"
+    print(errorMessage)
+}
