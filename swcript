@@ -93,26 +93,36 @@ func saveScriptContentsToPath(contents: String, outPath: String) {
     }
 }
 
+func minifiedScriptContents(contents: String) -> String {
+    var minifiedContents = contents
+
+    minifiedContents = minifiedContents.stringByReplacingOccurrencesOfString("\n", withString:";")
+    minifiedContents = minifiedContents.stringByReplacingOccurrencesOfString("{;", withString:"{")
+    minifiedContents = minifiedContents.stringByReplacingOccurrencesOfString(";;", withString:";")
+
+    return minifiedContents
+}
+
 func massageScriptContents(contents: String, options: [SwcriptOptions]) -> String {
     var massagedContents = contents
     
     let prologue = "#!/usr/bin/swift\n"
-    let epilogue = ";let swcriptapp = NSApplication.sharedApplication();if !swcriptapp.running { swcriptapp.run() }"
-    
-    massagedContents = prologue + massagedContents
+    let epilogue = "\nfunc run() { NSApplication.sharedApplication().run(); }"
     
     // Remove @NSApplicationMain instances
     massagedContents = massagedContents.stringByReplacingOccurrencesOfString("@NSApplicationMain", withString: "")
-    
-    massagedContents = massagedContents + epilogue
 
     // If we're supposed to minify, remove all newlines and replace them with
     // semicolons
 
     if (options.contains(.Minify)) {
-        massagedContents = massagedContents.stringByReplacingOccurrencesOfString("\n", withString: ";")
+        massagedContents = minifiedScriptContents(massagedContents)
     }
     
+    // Add the prologue and epilogue last
+    massagedContents = prologue + massagedContents
+    massagedContents = massagedContents + epilogue
+
     return massagedContents as String
 }
 
