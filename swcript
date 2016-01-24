@@ -158,12 +158,28 @@ if args.count >= 3 {
         options.append(.Minify)
     }
 
-    let inputDirectory = args[argCount - 2]
+    let inputPath = args[argCount - 2]
     let outputPath = args[argCount - 1]
+    let inputDirectory: String
     
     let fileManager = NSFileManager.defaultManager()
+
+    let files: [String]
     
-    let files = swiftFilesInDirectory(inputDirectory, fileManager: fileManager)
+    if (pathIsDirectory(inputPath, fileManager: fileManager)) {
+        files = swiftFilesInDirectory(inputPath, fileManager: fileManager)
+        inputDirectory = inputPath
+    }
+    else if(pathIsSwiftFile(inputPath, fileManager: fileManager)) {
+        files = [ inputPath ]
+        inputDirectory = ""
+    }
+    else {
+        files = [ ]
+        inputDirectory = "?"
+        print("Input path is not a directory or swift file")
+    }
+
     logSwiftFilePathsBeingAssembled(files, inputDirectory: inputDirectory)
     
     var scriptContents = combinedFileContentsOfFilePaths(files)
@@ -173,8 +189,9 @@ if args.count >= 3 {
 }
 else {
     let errorMessage = "Please pass a path to a directory containing swift files\n" +
-                       "that should be assembled into a script, and a path to a\n" +
-                       "file to use as an output script path\n" +
+                       "or a single swift file that should be assembled into a\n" +
+                       "script, and a path to afile to use as an output script\n" +
+                       "path\n" +
                        "    For example:\n" +
                        "    $ swcript ~/src/MyApp ~/Desktop/MyApp.swift\n"
     print(errorMessage)
